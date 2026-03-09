@@ -8,8 +8,4 @@
     }]
 ```
 
-4. Commit
 
-Wait a minute, then test the URL again:
-```
-https://verbose73.github.io/verbose/.well-known/assetlinks.json
