@@ -6,3 +6,10 @@
         "sha256_cert_fingerprints": ["C4:B4:D6:B0:63:5F:36:CB:D2:C4:2E:9C:44:93:87:2C:4C:9B:F9:AC:50:23:AA:71:3F:04:F0:D3:CD:B4:F4:94"]
       }
     }]
+```
+
+4. Commit
+
+Wait a minute, then test the URL again:
+```
+https://verbose73.github.io/verbose/.well-known/assetlinks.json
