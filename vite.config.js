@@ -4,7 +4,7 @@ export default defineConfig({
   plugins: [react()],
   base: '/verbose/',
   build: {
-    outDir: 'dist',
+    outDir: 'docs',
     minify: 'terser',
     terserOptions: {
       compress: {
