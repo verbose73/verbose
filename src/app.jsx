@@ -21142,7 +21142,7 @@ Respond ONLY with valid JSON:
         </div>
 
         {/* Design your task button — promoted to top */}
-        <button onClick={() => navigateTo('custom-task')} className="w-full py-4 rounded-xl font-mono font-bold text-lg mb-2 transition-all active:translate-y-1 active:brightness-90" style={{ backgroundColor: '#ef5f0d', color: darkMode ? '#000000' : '#F8F8FA', boxShadow: '0 4px 12px rgba(239,95,13,0.4)' }}>
+        <button onClick={() => !offlineMode && navigateTo('custom-task')} disabled={offlineMode} className="w-full py-4 rounded-xl font-mono font-bold text-lg mb-2 transition-all active:translate-y-1 active:brightness-90" style={{ backgroundColor: offlineMode ? '#888' : '#ef5f0d', color: darkMode ? '#000000' : '#F8F8FA', boxShadow: offlineMode ? 'none' : '0 4px 12px rgba(239,95,13,0.4)', opacity: offlineMode ? 0.6 : 1, cursor: offlineMode ? 'not-allowed' : 'pointer' }}>
           {t('customTaskBtn')}
         </button>
         <div className="text-center font-mono text-sm mb-6" style={{ color: '#FF6B35' }}>{t('customDefinitionHint')}</div>
@@ -21519,6 +21519,10 @@ Respond ONLY with valid JSON:
 
         {/* Generate Button */}
         <button onClick={() => {
+          if (offlineMode) {
+            showModerationToast(t('customOfflineNote'));
+            return;
+          }
           if (customTopic.trim()) {
             const mod = moderateContent(customTopic);
             if (!mod.ok) {
