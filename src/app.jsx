@@ -631,7 +631,7 @@ const C1EnglishApp = () => {
   const [showLeaderboard, setShowLeaderboard] = useState(true);
   const [showBadges, setShowBadges] = useState(true);
   const [showMistakes, setShowMistakes] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
   const [fontSize, setFontSize] = useState('small');
   const th = darkMode ? {
     pageBg: '#000000', pageGrid1: 'transparent', pageGrid2: 'transparent',

@@ -3,26 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#000000" />
   <title>Verbose - C1 English</title>
   <link rel="manifest" href="manifest.json" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>html, body { background-color: #000000; }</style>
   <script>
-    // Unregister any old service workers that cache stale content
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for (let registration of registrations) {
-          registration.unregister();
-        }
+        for (let registration of registrations) registration.unregister();
       });
     }
-    // Clear all caches
     if ('caches' in window) {
       caches.keys().then(function(names) {
         for (let name of names) caches.delete(name);
       });
     }
   </script>
-  <script type="module" crossorigin src="/verbose/assets/index-BGd-8TGZ.js"></script>
+  <script type="module" crossorigin src="/verbose/assets/index-BEVKL7Oz.js"></script>
 </head>
 <body>
   <div id="root"></div>
