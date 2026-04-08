@@ -12257,7 +12257,7 @@ Generate exactly ${effItemCount} questions. correctIdx is 0-3.`;
     }
 
     try {
-      const response = await apiFetch("https://api.anthropic.com/v1/messages", {
+      const response = await apiFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -12773,7 +12773,7 @@ Generate exactly ${effItemCount} questions. correctIdx is 0-3.`;
     }
 
     try {
-      const response = await apiFetch("https://api.anthropic.com/v1/messages", {
+      const response = await apiFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -13080,7 +13080,7 @@ Respond ONLY with valid JSON:
     if (!prompt) return;
 
     try {
-      const response = await apiFetch("https://api.anthropic.com/v1/messages", {
+      const response = await apiFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -13280,7 +13280,7 @@ Be warm, encouraging, and constructive. Write in flowing paragraphs, no bullet p
 Respond ONLY with valid JSON:
 {"analysis": "PERFORMANCE\n...\n\nGRAMMATICAL MISTAKES\n...\n\nPOSSIBLE IMPROVEMENTS\n...", "estimatedLevel": "B2"}`;
 
-      const response = await apiFetch("https://api.anthropic.com/v1/messages", {
+      const response = await apiFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -13872,7 +13872,7 @@ Respond ONLY with valid JSON:
     if (detailLevel === 'detailed' || detailLevel === 'verbose') generateDetailedAnalysis('dialogue-completion', { context: task.context, score, total, gapSummary });
 
     try {
-      const response = await apiFetch("https://api.anthropic.com/v1/messages", {
+      const response = await apiFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -13943,7 +13943,7 @@ Scene elements:
 - Special elements: ${(sceneData.specialElements || []).join(', ') || 'none'}
 `;
 
-      const response = await apiFetch("https://api.anthropic.com/v1/messages", {
+      const response = await apiFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -14002,7 +14002,7 @@ Respond ONLY with valid JSON in this exact format:
 
   const analyzeEssay = async (userText, topic, theme) => {
     try {
-      const response = await apiFetch("https://api.anthropic.com/v1/messages", {
+      const response = await apiFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -14064,7 +14064,7 @@ Respond ONLY with valid JSON:
 
   const analyzeSummary = async (userText, passage, title, keyPoints) => {
     try {
-      const response = await apiFetch("https://api.anthropic.com/v1/messages", {
+      const response = await apiFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
