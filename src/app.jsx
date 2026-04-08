@@ -840,6 +840,73 @@ const C1EnglishApp = () => {
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), timeoutMs));
     return Promise.race([fetch(url, options), timeout]);
   };
+
+  // ── Gemini (primary) + Claude (fallback) AI layer ──
+  const GEMINI_MODEL = 'gemini-2.5-flash';
+  const GEMINI_PROXY = '/api/gemini'; // Vercel serverless proxy — key stays server-side
+
+  const geminiRequest = async (prompt, { maxTokens = 2500, temperature = 0.9, jsonMode = false } = {}) => {
+    const genConfig = { maxOutputTokens: maxTokens, temperature };
+    if (jsonMode) genConfig.responseMimeType = 'application/json';
+    const response = await apiFetch(GEMINI_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: GEMINI_MODEL,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: genConfig,
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.error?.message || `Gemini error ${response.status}`);
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  };
+
+  const claudeRequest = async (prompt, { maxTokens = 2500, temperature = 0.9 } = {}) => {
+    const response = await apiFetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: maxTokens,
+        temperature,
+        messages: [{ role: 'user', content: prompt }],
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.error?.message || `Claude error ${response.status}`);
+    return data.content?.[0]?.text || '';
+  };
+
+  // JSON generation: Gemini primary (with native JSON mode), Claude fallback
+  const aiGenerateJSON = async (prompt, { maxTokens = 2500, temperature = 0.9 } = {}) => {
+    // Try Gemini first (with JSON mode for reliable output)
+    try {
+      const text = await geminiRequest(prompt, { maxTokens, temperature, jsonMode: true });
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('No JSON from Gemini');
+      return JSON.parse(match[0]);
+    } catch (geminiErr) {
+      console.warn('Gemini failed, falling back to Claude:', geminiErr.message);
+    }
+    // Fallback to Claude
+    const text = await claudeRequest(prompt, { maxTokens, temperature });
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON found in response');
+    return JSON.parse(match[0]);
+  };
+
+  // Free-text generation: Gemini primary, Claude fallback
+  const aiGenerateText = async (prompt, { maxTokens = 1500, temperature = 0.7 } = {}) => {
+    try {
+      const text = await geminiRequest(prompt, { maxTokens, temperature, jsonMode: false });
+      if (text) return text;
+      throw new Error('Empty Gemini response');
+    } catch (geminiErr) {
+      console.warn('Gemini text failed, falling back to Claude:', geminiErr.message);
+    }
+    return await claudeRequest(prompt, { maxTokens, temperature });
+  };
   const [foxName, setFoxName] = useState('');
   const [leaderboard, setLeaderboard] = useState([]);
   const [mistakes, setMistakes] = useState([]);
@@ -12269,38 +12336,14 @@ Generate exactly ${effItemCount} questions. correctIdx is 0-3.`;
     }
 
     try {
-      const makeRequest = async () => {
-        const response = await apiFetch("/api/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: (taskType === 'dialogue-completion' || taskType === 'language-quiz' || taskType === 'collocation' || taskType === 'word-formation' || taskType === 'summary') ? 2500 : 1500,
-            temperature: 0.9,
-            messages: [{ role: "user", content: prompts[taskType] }]
-          })
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          const errMsg = data?.error?.message || `API error ${response.status}`;
-          throw new Error(errMsg);
-        }
-        const text = data.content?.[0]?.text || '';
-        
-        // Parse JSON from response
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('No JSON found in response');
-        
-        return JSON.parse(jsonMatch[0]);
-      };
+      const maxTok = (taskType === 'dialogue-completion' || taskType === 'language-quiz' || taskType === 'collocation' || taskType === 'word-formation' || taskType === 'summary') ? 2500 : 1500;
 
       // Retry with backoff on failure (up to 3 attempts for custom tasks, 2 for regular)
       const maxAttempts = co?.taskDefinition ? 3 : 2;
       let lastErr;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          return await makeRequest();
+          return await aiGenerateJSON(prompts[taskType], { maxTokens: maxTok, temperature: 0.9 });
         } catch (err) {
           lastErr = err;
           console.warn(`AI generation attempt ${attempt}/${maxAttempts} failed:`, err.message);
@@ -12804,26 +12847,13 @@ Generate exactly ${effItemCount} questions. correctIdx is 0-3.`;
     }
 
     try {
-      const response = await apiFetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 100,
-          messages: [{ 
-            role: "user", 
-            content: `Generate a short motivating message (1-2 sentences) for a ${promptLanguage} learner who just completed a "${taskName}" exercise with ${score} out of ${total} correct.
+      const motivationPrompt = `Generate a short motivating message (1-2 sentences) for a ${promptLanguage} learner who just completed a "${taskName}" exercise with ${score} out of ${total} correct.
 
 ${pct >= 80 ? 'They did great!' : pct >= 60 ? 'They did okay.' : 'They need encouragement.'}
 
 Be warm and supportive. Sound like a kind teacher. Keep it brief.${britishEnglishPrompt}
-Respond with ONLY the message, no quotes.`
-          }]
-        })
-      });
-
-      const data = await response.json();
-      const message = data.content?.[0]?.text?.trim() || null;
+Respond with ONLY the message, no quotes.`;
+      const message = (await aiGenerateText(motivationPrompt, { maxTokens: 100, temperature: 0.7 })).trim();
       if (message) {
         setTaskMotivation(message);
       } else {
@@ -13111,40 +13141,13 @@ Respond ONLY with valid JSON:
     if (!prompt) return;
 
     try {
-      const response = await apiFetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: detailLevel === 'verbose' ? 700 : detailLevel === 'detailed' ? 500 : detailLevel === 'short' ? 250 : 200,
-          messages: [{ role: "user", content: prompt }]
-        })
-      });
-      const data = await response.json();
-      const text = (data.content?.[0]?.text || '').replace(/```json|```/g, '').trim();
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.analysis) parsed.analysis = parsed.analysis.replace(/\\n/g, '\n');
-          if (['essay', 'describe-image', 'summary'].includes(taskType) && taskContext.userText && !isRecognizableLanguage(taskContext.userText)) {
-            parsed.estimatedLevel = 'Pre-A1';
-          }
-          setDetailedAnalysis(parsed);
-        } catch (parseErr) {
-          // JSON was truncated or malformed — use the raw text as fallback
-          const score = taskContext.score;
-          const total = taskContext.total;
-          const pct = Math.round(score / total * 100);
-          setDetailedAnalysis({ analysis: text.replace(/[{}"]/g, '').replace(/^\s*analysis\s*:\s*/i, '').replace(/,?\s*estimatedLevel\s*:\s*\w+\s*$/i, '').trim() || `Score: ${score}/${total} (${pct}%). ${pct >= 70 ? 'Good work! Keep practising to strengthen your skills.' : 'Keep going — consistent practice leads to improvement.'}`, estimatedLevel: pct >= 90 ? 'C2' : pct >= 78 ? 'C1' : pct >= 65 ? 'B2' : pct >= 50 ? 'B1' : pct >= 35 ? 'A2' : 'A1' });
-        }
-      } else {
-        // No JSON found in response — use raw text or fallback
-        const score = taskContext.score;
-        const total = taskContext.total;
-        const pct = Math.round(score / total * 100);
-        setDetailedAnalysis({ analysis: text.trim() || `Score: ${score}/${total} (${pct}%). ${pct >= 70 ? 'Good work! Keep practising to strengthen your skills.' : 'Keep going — consistent practice leads to improvement.'}`, estimatedLevel: pct >= 90 ? 'C2' : pct >= 78 ? 'C1' : pct >= 65 ? 'B2' : pct >= 50 ? 'B1' : pct >= 35 ? 'A2' : 'A1' });
+      const maxTok = detailLevel === 'verbose' ? 700 : detailLevel === 'detailed' ? 500 : detailLevel === 'short' ? 250 : 200;
+      const parsed = await aiGenerateJSON(prompt, { maxTokens: maxTok, temperature: 0.7 });
+      if (parsed.analysis) parsed.analysis = parsed.analysis.replace(/\\n/g, '\n');
+      if (['essay', 'describe-image', 'summary'].includes(taskType) && taskContext.userText && !isRecognizableLanguage(taskContext.userText)) {
+        parsed.estimatedLevel = 'Pre-A1';
       }
+      setDetailedAnalysis(parsed);
     } catch (e) {
       console.error('Detailed analysis error:', e);
       const score = taskContext.score;
@@ -13311,28 +13314,19 @@ Be warm, encouraging, and constructive. Write in flowing paragraphs, no bullet p
 Respond ONLY with valid JSON:
 {"analysis": "PERFORMANCE\n...\n\nGRAMMATICAL MISTAKES\n...\n\nPOSSIBLE IMPROVEMENTS\n...", "estimatedLevel": "B2"}`;
 
-      const response = await apiFetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: detailLevel === 'verbose' ? 800 : detailLevel === 'detailed' ? 500 : detailLevel === 'short' ? 300 : 250,
-          messages: [{ role: "user", content: comprehensivePrompt }]
-        })
-      });
-      const data = await response.json();
-      const text = (data.content?.[0]?.text || '').replace(/```json|```/g, '').trim();
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
+      const maxTok = detailLevel === 'verbose' ? 800 : detailLevel === 'detailed' ? 500 : detailLevel === 'short' ? 300 : 250;
+      try {
+        const parsed = await aiGenerateJSON(comprehensivePrompt, { maxTokens: maxTok, temperature: 0.7 });
+        if (parsed.analysis) parsed.analysis = parsed.analysis.replace(/\\n/g, '\n');
+        setComprehensiveAnalysis(parsed);
+      } catch (jsonErr) {
+        // JSON parsing failed — try as plain text
         try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.analysis) parsed.analysis = parsed.analysis.replace(/\\n/g, '\n');
-          setComprehensiveAnalysis(parsed);
-        } catch (parseErr) {
-          setComprehensiveAnalysis({ analysis: text.replace(/[{}"]/g, '').replace(/^\s*analysis\s*:\s*/i, '').replace(/,?\s*estimatedLevel\s*:\s*\w+\s*$/i, '').trim() || `You scored ${pct}% overall. ${pct >= 70 ? 'Well done!' : 'Keep practising!'} Review the task breakdown above to see where to focus.`, estimatedLevel: estLevel });
+          const text = await aiGenerateText(comprehensivePrompt, { maxTokens: maxTok, temperature: 0.7 });
+          setComprehensiveAnalysis({ analysis: text.trim() || `You scored ${pct}% overall. ${pct >= 70 ? 'Well done!' : 'Keep practising!'} Review the task breakdown above to see where to focus.`, estimatedLevel: estLevel });
+        } catch (textErr) {
+          throw textErr;
         }
-      } else {
-        setComprehensiveAnalysis({ analysis: text.trim() || `You scored ${pct}% overall. ${pct >= 70 ? 'Well done!' : 'Keep practising!'} Review the task breakdown above to see where to focus.`, estimatedLevel: estLevel });
       }
     } catch (e) {
       console.error('Comprehensive analysis error:', e);
@@ -13903,13 +13897,7 @@ Respond ONLY with valid JSON:
     if (detailLevel === 'detailed' || detailLevel === 'verbose') generateDetailedAnalysis('dialogue-completion', { context: task.context, score, total, gapSummary });
 
     try {
-      const response = await apiFetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 300,
-          messages: [{ role: "user", content: `You are a warm ${promptLanguage} coach. A ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) student completed a dialogue completion exercise.
+      const dialoguePrompt = `You are a warm ${promptLanguage} coach. A ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) student completed a dialogue completion exercise.
 
 Context: "${task.context}"
 Score: ${score}/${total}
@@ -13919,18 +13907,9 @@ ${gapSummary}
 Write exactly 2 sentences of personalised feedback. Mention one specific thing about their choices and end with brief encouragement. Be concise.
 
 Respond ONLY with valid JSON:
-{"feedback": "Your feedback here."}` }]
-        })
-      });
-      const data = await response.json();
-      const text = data.content?.[0]?.text || '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        setDialogueAnalysis(parsed.feedback);
-      } else {
-        setDialogueAnalysis(score === total ? 'Excellent work! You demonstrated strong pragmatic awareness.' : 'Good effort! Keep practising your conversational skills.');
-      }
+{"feedback": "Your feedback here."}`;
+      const parsed = await aiGenerateJSON(dialoguePrompt, { maxTokens: 300, temperature: 0.7 });
+      setDialogueAnalysis(parsed.feedback);
     } catch (e) {
       setDialogueAnalysis(score === total ? 'Excellent work! You demonstrated strong pragmatic awareness.' : 'Good effort! Keep practising your conversational skills.');
     }
@@ -13974,15 +13953,7 @@ Scene elements:
 - Special elements: ${(sceneData.specialElements || []).join(', ') || 'none'}
 `;
 
-      const response = await apiFetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 600,
-          messages: [{ 
-            role: "user", 
-            content: `You are a warm, supportive ${promptLanguage} language coach evaluating a learner's image description for a ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) level exercise. Be CONSISTENTLY positive, encouraging, and uplifting. Frame every correction as a helpful tip. Never use words like "wrong", "bad", or "poor". Use phrases like "nice effort — try this tweak", "you're close — just adjust", "great start — here's how to level up".
+      const imageAnalysisPrompt = `You are a warm, supportive ${promptLanguage} language coach evaluating a learner's image description for a ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) level exercise. Be CONSISTENTLY positive, encouraging, and uplifting. Frame every correction as a helpful tip. Never use words like "wrong", "bad", or "poor". Use phrases like "nice effort — try this tweak", "you're close — just adjust", "great start — here's how to level up".
 
 CONTENT MODERATION: If the student's text contains hate speech, slurs, threats, explicit sexual content, promotion of crime or violence, or any other inappropriate content unrelated to the task, set "flagged": true in your JSON response and give all scores as 0. Otherwise set "flagged": false.
 
@@ -14015,16 +13986,8 @@ Respond ONLY with valid JSON in this exact format:
   ],
   "correctedText": "The full text with all corrections applied. Keep the student's ideas but polish everything.",
   "flagged": false
-}`
-          }]
-        })
-      });
-
-      const data = await response.json();
-      const text = data.content?.[0]?.text || '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON found');
-      return JSON.parse(jsonMatch[0]);
+}`;
+      return await aiGenerateJSON(imageAnalysisPrompt, { maxTokens: 600, temperature: 0.7 });
     } catch (error) {
       console.error('Analysis error:', error);
       return null;
@@ -14033,15 +13996,7 @@ Respond ONLY with valid JSON in this exact format:
 
   const analyzeEssay = async (userText, topic, theme) => {
     try {
-      const response = await apiFetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 750,
-          messages: [{ 
-            role: "user", 
-            content: `You are a warm, supportive ${promptLanguage} language coach evaluating a student's essay for a ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) level exercise. Your tone must be CONSISTENTLY positive, encouraging, and uplifting — even when pointing out errors. Frame every correction as a learning opportunity and celebrate effort. Never use words like "wrong", "bad", "weak", "poor", or "fail". Instead use phrases like "you're on the right track", "a small tweak here would make it shine", "great attempt — here's how to take it even further", "you're so close — just adjust this". Keep each feedback field to 1 sentence.
+      const essayPrompt = `You are a warm, supportive ${promptLanguage} language coach evaluating a student's essay for a ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) level exercise. Your tone must be CONSISTENTLY positive, encouraging, and uplifting — even when pointing out errors. Frame every correction as a learning opportunity and celebrate effort. Never use words like "wrong", "bad", "weak", "poor", or "fail". Instead use phrases like "you're on the right track", "a small tweak here would make it shine", "great attempt — here's how to take it even further", "you're so close — just adjust this". Keep each feedback field to 1 sentence.
 
 CONTENT MODERATION: If the student's text contains hate speech, slurs, threats, explicit sexual content, promotion of crime or violence, or any other inappropriate content unrelated to the task, set "flagged": true in your JSON response and give all scores as 0. Otherwise set "flagged": false.
 
@@ -14077,16 +14032,8 @@ Respond ONLY with valid JSON:
   "improvements": "1-2 friendly suggestions framed as exciting next steps, with a concrete example.",
   "correctedText": "The full text rewritten with all errors corrected. Keep the student's ideas but polish everything to ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) level.",
   "flagged": false
-}`
-          }]
-        })
-      });
-
-      const data = await response.json();
-      const text = data.content?.[0]?.text || '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON found');
-      return JSON.parse(jsonMatch[0]);
+}`;
+      return await aiGenerateJSON(essayPrompt, { maxTokens: 750, temperature: 0.7 });
     } catch (error) {
       console.error('Essay analysis error:', error);
       return null;
@@ -14095,15 +14042,7 @@ Respond ONLY with valid JSON:
 
   const analyzeSummary = async (userText, passage, title, keyPoints) => {
     try {
-      const response = await apiFetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 750,
-          messages: [{ 
-            role: "user", 
-            content: `You are a warm, supportive ${promptLanguage} language coach evaluating a student's summary for a ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) level exercise. Be positive and encouraging. Frame corrections as learning opportunities.
+      const summaryPrompt = `You are a warm, supportive ${promptLanguage} language coach evaluating a student's summary for a ${difficultyLevel} (${difficultyLabels[difficultyLevel]}) level exercise. Be positive and encouraging. Frame corrections as learning opportunities.
 
 CONTENT MODERATION: If the student's text contains hate speech, slurs, threats, explicit sexual content, promotion of crime or violence, or any other inappropriate content unrelated to the task, set "flagged": true in your JSON response and give all scores as 0. Otherwise set "flagged": false.
 
@@ -14142,16 +14081,8 @@ Respond ONLY with valid JSON:
   "improvements": "1-2 friendly suggestions.",
   "modelSummary": "A model 40-60 word summary for comparison.",
   "flagged": false
-}`
-          }]
-        })
-      });
-
-      const data = await response.json();
-      const text = data.content?.[0]?.text || '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON found');
-      return JSON.parse(jsonMatch[0]);
+}`;
+      return await aiGenerateJSON(summaryPrompt, { maxTokens: 750, temperature: 0.7 });
     } catch (error) {
       console.error('Summary analysis error:', error);
       return null;
