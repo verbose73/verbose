@@ -2091,7 +2091,7 @@ const C1EnglishApp = () => {
     const nextMilestone = streak < 3 ? 3 : streak < 7 ? 7 : streak < 14 ? 14 : streak < 30 ? 30 : null;
     const nextMult = streak < 3 ? '1.5' : streak < 7 ? '2' : streak < 14 ? '4' : streak < 30 ? '10' : null;
     if (detailLevel === 'veryshort') return null;
-    const hasAny = showScore || showXp || (showStreak && streak > 0);
+    const hasAny = showScore || showXp || showStreak;
     if (!hasAny) return null;
 
     return (
@@ -2111,7 +2111,7 @@ const C1EnglishApp = () => {
               <div className="text-lg font-mono font-bold mt-1" style={{ color: '#FF6B35', opacity: mult > 1 ? 1 : 0 }}>{mult > 1 ? `${mult}×` : '\u00A0'}</div>
             </div>
           )}
-          {showStreak && streak > 0 && (
+          {showStreak && (
             <div className="stat-box flex-1 app-bg border-4 border-[#FF6B35] py-4 px-2 text-center rounded-xl flex flex-col items-center" style={{ boxShadow: th.shadow, minWidth: 0 }}>
               <span className="text-2xl font-bold font-mono" style={{ color: '#FF6B35', whiteSpace: 'nowrap' }}>{streak}</span>
               <div style={{ color: th.cardText }} className="text-base font-mono">{t('streak')}</div>
